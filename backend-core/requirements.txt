@@ -1,0 +1,34 @@
+# ==========================================
+# Backend-Core Requirements
+# Purpose: FastAPI + GPU Llama-3.2-3B + DB
+# ==========================================
+
+# Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.9
+
+# Database
+sqlmodel==0.0.14
+psycopg2-binary==2.9.9
+
+# LangChain Ecosystem
+langchain==0.1.20
+langchain-huggingface==0.0.3
+langchain-core==0.1.52
+
+# LLM & Quantization (GPU - 4-bit)
+transformers >= 4.39.0
+torch==2.2.1
+accelerate==0.27.2
+bitsandbytes==0.42.0
+sentencepiece==0.2.0
+protobuf==4.25.3
+
+# Task Queue
+celery[redis]==5.3.6
+redis==5.0.3
+
+# Authentication (if needed)
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
