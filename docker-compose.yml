@@ -1,0 +1,111 @@
+
+services:
+  # 1. Database: PostgreSQL + pgvector
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: interview_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - interview_network
+
+  # 2. Redis: Task Queue & Session Cache
+  redis:
+    image: redis:7-alpine
+    container_name: interview_redis
+    networks:
+      - interview_network
+
+  # 3. Backend Core: FastAPI
+  backend:
+    build: ./backend-core
+    container_name: interview_backend
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
+      - HUGGINGFACE_HUB_TOKEN=${HUGGINGFACE_HUB_TOKEN}
+      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
+    depends_on:
+      - redis
+      - db
+    networks:
+      - interview_network
+
+  # 4. AI Worker: Celery (Emotion/Audio Analysis)
+  ai-worker:
+    build:
+      context: ./ai-worker
+      dockerfile: Dockerfile
+    working_dir: /app
+    container_name: interview_worker
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - MODEL_PATH=/app/models/solar-10.7b-instruct-v1.0.Q8_0.gguf
+      - N_GPU_LAYERS=0 # 순수 CPU 연산
+    deploy:
+      resources:
+        limits:
+          cpus: '8.0'          # CPU 코어 제한
+          memory: 32G          # 70B 모델 로드용 대용량 RAM
+    depends_on:
+      - redis
+      - db
+    volumes:
+      - ./ai-worker/models:/app/models
+    networks:
+      - interview_network
+
+  # 5. Media Server: WebRTC & STT
+  media-server:
+    build: ./media-server
+    container_name: interview_media
+    ports:
+      - "8080:8080"
+    environment:
+      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      - backend
+    networks:
+      - interview_network
+
+  # 6. Frontend: React (Vite/CRA)
+  frontend:
+    build:
+      context: ./frontend
+    container_name: interview_react_web
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - interview_network
+
+networks:
+  interview_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
