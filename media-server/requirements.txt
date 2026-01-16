@@ -1,0 +1,32 @@
+# ==========================================
+# Media-Server Requirements
+# Purpose: WebRTC + STT (Deepgram v5.x) + WebSocket
+# ==========================================
+
+# Web Framework
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+ 
+# WebRTC & Media Processing
+aiortc==1.14.0
+av >= 14.0.0, < 17.0.0
+opencv-python-headless==4.9.0.80
+ 
+# WebRTC Dependencies
+cryptography >= 44.0.0
+pyee >= 13.0.0
+pylibsrtp==0.10.0
+ 
+# Async & WebSocket
+aiohttp==3.11.11
+websockets==14.1
+ 
+# Task Queue (for emotion analysis delegation)
+celery[redis]==5.4.0
+redis==5.2.1
+
+# STT Service (CRITICAL: v5.x API)
+deepgram-sdk>=5.3.1,<6.0.0
+
+# Data Processing
+numpy>=1.23.0,<2.0.0
