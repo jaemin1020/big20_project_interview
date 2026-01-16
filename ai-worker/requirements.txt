@@ -1,0 +1,35 @@
+# ==========================================
+# AI-Worker Requirements  
+# Purpose: Celery + CPU Solar-10.7B + DeepFace
+# ==========================================
+
+# Task Queue
+celery[redis]==5.3.6
+redis==5.0.3
+
+# Database
+sqlmodel==0.0.14
+psycopg2-binary==2.9.9
+
+# LangChain Ecosystem
+langchain==0.1.20
+langchain-community==0.0.38
+langchain-core==0.1.52
+
+# LLM (CPU - GGUF Format)
+llama-cpp-python==0.2.56
+
+# Computer Vision & Emotion Detection
+deepface==0.0.91
+tensorflow==2.16.1
+tf-keras==2.16.0
+opencv-python-headless==4.9.0.80
+
+# Audio Processing (if needed)
+librosa==0.10.1
+
+# Data Processing
+numpy>=1.23.0,<2.0.0
+
+# Pydantic (v1 for compatibility)
+pydantic==1.10.13
