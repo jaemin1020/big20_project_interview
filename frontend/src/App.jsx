@@ -1,8 +1,15 @@
 import { useState, useRef, useEffect } from 'react';
-import { createSession, getQuestions, submitAnswer, getResults } from './api/interview';
+import { createSession, getQuestions, submitAnswer, getResults, login as apiLogin, register as apiRegister, logout as apiLogout, getCurrentUser } from './api/interview';
 
 function App() {
-  const [step, setStep] = useState('landing');
+  const [step, setStep] = useState('auth'); // auth, landing, interview, loading, result
+  const [user, setUser] = useState(null);
+  const [authMode, setAuthMode] = useState('login'); // login, register
+  const [authError, setAuthError] = useState('');
+  
+  // Auth 관련 입력 상태
+  const [account, setAccount] = useState({ username: '', password: '', fullName: '' });
+
   const [session, setSession] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [currentIdx, setCurrentIdx] = useState(0);
@@ -13,22 +20,72 @@ function App() {
   const [isRecording, setIsRecording] = useState(false); // 녹음 상태
   const [fullTranscript, setFullTranscript] = useState(''); // 전체 누적 텍스트
   
+  // 사용자 입력 상태
+  const [userName, setUserName] = useState('');
+  const [position, setPosition] = useState('');
+  
   const videoRef = useRef(null);
   const pcRef = useRef(null);
   const wsRef = useRef(null); // WebSocket 참조
 
-  const startInterview = async (userName, position) => {
+  // 유저 정보 확인 로직 추가
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      getCurrentUser()
+        .then(u => {
+          setUser(u);
+          setStep('landing');
+          setUserName(u.full_name || u.username);
+        })
+        .catch(() => {
+          localStorage.removeItem('token');
+          setStep('auth');
+        });
+    }
+  }, []);
+
+  const handleAuth = async () => {
+    setAuthError('');
     try {
-      const sess = await createSession(userName, position);
+      if (authMode === 'login') {
+        await apiLogin(account.username, account.password);
+        const u = await getCurrentUser();
+        setUser(u);
+        setUserName(u.full_name || u.username);
+        setStep('landing');
+      } else {
+        await apiRegister(account.username, account.password, account.fullName);
+        alert('회원가입 성공! 로그인해주세요.');
+        setAuthMode('login');
+      }
+    } catch (err) {
+      setAuthError(err.response?.data?.detail || '인증 실패');
+    }
+  };
+
+  const handleLogout = () => {
+    apiLogout();
+    setUser(null);
+    setStep('auth');
+  };
+
+  const startInterview = async (uName, uPos) => {
+    if (!uName.trim() || !uPos.trim()) {
+      alert("이름과 지원 직무를 입력해주세요.");
+      return;
+    }
+    console.log(uName, uPos + ' 입력됨');
+    try {
+      const sess = await createSession(uName, uPos);
       setSession(sess);
       const qs = await getQuestions(sess.id);
       setQuestions(qs);
       setStep('interview');
-      await setupWebRTC(sess.id);
-      setupWebSocket(sess.id); // WebSocket 연결 추가
+      // WebRTC 및 WebSocket 연결은 useEffect에서 step이 'interview'로 변경된 후 실행됩니다.
     } catch (err) {
       console.error("Interview start error:", err);
-      alert("Failed to start session. Make sure backend is running.");
+      alert("면접 세션 생성에 실패했습니다. 백엔드 서버 상태를 확인해주세요.");
     }
   };
 
@@ -122,8 +179,14 @@ function App() {
         setStep('loading');
         
         // WebSocket 및 WebRTC 연결 종료
-        if (wsRef.current) wsRef.current.close();
-        if (pcRef.current) pcRef.current.close();
+        if (wsRef.current) {
+          wsRef.current.close();
+          wsRef.current = null;
+        }
+        if (pcRef.current) {
+          pcRef.current.close();
+          pcRef.current = null;
+        }
         
         // AI 평가 완료 대기 후 결과 조회
         setTimeout(async () => {
@@ -138,21 +201,114 @@ function App() {
     }
   };
 
+  // 면접 단계 진입 시 Media 설정
+  useEffect(() => {
+    if (step === 'interview' && session && videoRef.current && !pcRef.current) {
+      const initMedia = async () => {
+        try {
+          await setupWebRTC(session.id);
+          setupWebSocket(session.id);
+        } catch (err) {
+          console.error("Media initialization error:", err);
+          alert("카메라 및 마이크 연결에 실패했습니다.");
+        }
+      };
+      initMedia();
+    }
+  }, [step, session]);
+
   // 컴포넌트 언마운트 시 리소스 정리
   useEffect(() => {
     return () => {
       if (wsRef.current) wsRef.current.close();
-      if (pcRef.current) pcRef.current.close();
+      if (pcRef.current) {
+        pcRef.current.close();
+        pcRef.current = null;
+      }
     };
   }, []);
 
   return (
     <div className="container">
+      {step === 'auth' && (
+        <div className="card">
+          <h1>{authMode === 'login' ? '로그인' : '회원가입'}</h1>
+          <div className="input-group" style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'left' }}>
+            {authMode === 'register' && (
+              <div>
+                <label style={{ display: 'block', marginBottom: '5px' }}>성함:</label>
+                <input 
+                  type="text" 
+                  value={account.fullName}
+                  onChange={(e) => setAccount({ ...account, fullName: e.target.value })}
+                  style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', color: '#333' }}
+                />
+              </div>
+            )}
+            <div>
+              <label style={{ display: 'block', marginBottom: '5px' }}>아이디:</label>
+              <input 
+                type="text" 
+                value={account.username}
+                onChange={(e) => setAccount({ ...account, username: e.target.value })}
+                style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', color: '#333' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '5px' }}>비밀번호:</label>
+              <input 
+                type="password" 
+                value={account.password}
+                onChange={(e) => setAccount({ ...account, password: e.target.value })}
+                style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', color: '#333' }}
+              />
+            </div>
+            {authError && <p style={{ color: '#ef4444', margin: 0 }}>{authError}</p>}
+          </div>
+          <button onClick={handleAuth} style={{ width: '100%', marginBottom: '10px' }}>
+            {authMode === 'login' ? '로그인' : '회원가입'}
+          </button>
+          <p 
+            style={{ cursor: 'pointer', color: '#3b82f6', fontSize: '0.9em' }} 
+            onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}
+          >
+            {authMode === 'login' ? '계정이 없으신가요? 회원가입' : '이미 계정이 있으신가요? 로그인'}
+          </p>
+        </div>
+      )}
+
       {step === 'landing' && (
         <div className="card">
-          <h1>AI Interview System</h1>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h1>AI Interview System</h1>
+            <button onClick={handleLogout} style={{ padding: '5px 10px', fontSize: '0.8em', backgroundColor: '#64748b' }}>로그아웃</button>
+          </div>
           <p>지원 정보를 입력하고 면접을 시작하세요.</p>
-          <button onClick={() => startInterview("홍길동", "Frontend Engineer")}>
+          <div className="input-group" style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'left' }}>
+            <div>
+              <label htmlFor="name" style={{ display: 'block', marginBottom: '5px' }}>이름:</label>
+              <input 
+                id="name" 
+                type="text" 
+                placeholder="이름을 입력하세요" 
+                value={userName}
+                onChange={(e) => setUserName(e.target.value)}
+                style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', color: '#333' }}
+              />
+            </div>
+            <div>
+              <label htmlFor="position" style={{ display: 'block', marginBottom: '5px' }}>지원 직무:</label>
+              <input 
+                id="position" 
+                type="text" 
+                placeholder="지원 직무 (예: Frontend 개발자)" 
+                value={position}
+                onChange={(e) => setPosition(e.target.value)}
+                style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', color: '#333' }}
+              />
+            </div>
+          </div>
+          <button onClick={() => startInterview(userName, position)}>
             면접 시작하기
           </button>
         </div>

@@ -1,12 +1,18 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 from celery import Celery
 import logging
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from database import engine, init_db, get_session
-from models import InterviewSession, InterviewQuestion, InterviewAnswer
+from models import InterviewSession, InterviewQuestion, InterviewAnswer, User
 from chains.llama_gen import generator
+from auth import get_password_hash, verify_password, create_access_token, get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
+from fastapi.security import OAuth2PasswordRequestForm
+from datetime import timedelta
 
 # 1. 로깅 및 앱 초기화
 logging.basicConfig(level=logging.INFO)
@@ -38,8 +44,47 @@ celery_app = Celery("ai_worker", broker="redis://redis:6379/0", backend="redis:/
 async def root():
     return {"message": "AI Interview Backend API is running"}
 
+@app.post("/register")
+async def register(user: User, db: Session = Depends(get_session)):
+    # Check if user exists
+    statement = select(User).where(User.username == user.username)
+    db_user = db.exec(statement).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    
+    user.hashed_password = get_password_hash(user.hashed_password)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"username": user.username, "id": user.id}
+
+@app.post("/token")
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_session)):
+    statement = select(User).where(User.username == form_data.username)
+    user = db.exec(statement).first()
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/users/me")
+async def read_users_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
 @app.post("/sessions", response_model=InterviewSession)
-async def create_session(session_data: InterviewSession, db: Session = Depends(get_session)):
+async def create_session(
+    session_data: InterviewSession, 
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    session_data.user_id = current_user.id
     db.add(session_data)
     db.commit()
     db.refresh(session_data)
@@ -74,13 +119,21 @@ async def create_session(session_data: InterviewSession, db: Session = Depends(g
     return session_data
 
 @app.get("/sessions/{session_id}/questions", response_model=list[InterviewQuestion])
-async def get_questions(session_id: int, db: Session = Depends(get_session)):
+async def get_questions(
+    session_id: int, 
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
     statement = select(InterviewQuestion).where(InterviewQuestion.session_id == session_id).order_by(InterviewQuestion.order)
     results = db.exec(statement).all()
     return results
 
 @app.post("/answers")
-async def submit_answer(answer: InterviewAnswer, db: Session = Depends(get_session)):
+async def submit_answer(
+    answer: InterviewAnswer, 
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
     # 1. 답변 저장
     db.add(answer)
     db.commit()
@@ -103,7 +156,11 @@ async def submit_answer(answer: InterviewAnswer, db: Session = Depends(get_sessi
     return {"status": "submitted", "answer_id": answer.id}
 
 @app.get("/sessions/{session_id}/results")
-async def get_session_results(session_id: int, db: Session = Depends(get_session)):
+async def get_session_results(
+    session_id: int, 
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
     # 세션에 속한 모든 질문과 답변 조회
     statement = select(InterviewQuestion, InterviewAnswer).join(
         InterviewAnswer, InterviewQuestion.id == InterviewAnswer.question_id

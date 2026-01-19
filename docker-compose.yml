@@ -19,6 +19,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: interview_redis
+    restart: always
     networks:
       - interview_network
 

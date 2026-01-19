@@ -3,8 +3,16 @@ from sqlalchemy.dialects.postgresql import JSONB
 from typing import Optional, Dict, Any
 from datetime import datetime
 
+class User(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(index=True, unique=True)
+    hashed_password: str
+    full_name: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
 class InterviewSession(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     user_name: str
     position: str  # 지원 직무
     created_at: datetime = Field(default_factory=datetime.utcnow)
