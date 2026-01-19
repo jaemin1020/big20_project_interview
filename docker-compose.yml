@@ -45,6 +45,8 @@ services:
     depends_on:
       - redis
       - db
+    volumes:
+      - ./backend-core:/app
     networks:
       - interview_network
 
@@ -69,6 +71,7 @@ services:
       - redis
       - db
     volumes:
+      - ./ai-worker:/app
       - ./ai-worker/models:/app/models
     networks:
       - interview_network
@@ -84,6 +87,8 @@ services:
       - BACKEND_URL=http://backend:8000
     depends_on:
       - backend
+    volumes:
+      - ./media-server:/app
     networks:
       - interview_network
 

@@ -3,12 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 from celery import Celery
 import logging
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 
-load_dotenv()
+# load_dotenv()
 
 from database import engine, init_db, get_session
-from models import InterviewSession, InterviewQuestion, InterviewAnswer, User
+from models import InterviewSession, InterviewQuestion, InterviewAnswer, User, SessionCreate
 from chains.llama_gen import generator
 from auth import get_password_hash, verify_password, create_access_token, get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
 from fastapi.security import OAuth2PasswordRequestForm
@@ -29,7 +29,7 @@ def on_startup():
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -80,20 +80,27 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
 
 @app.post("/sessions", response_model=InterviewSession)
 async def create_session(
-    session_data: InterviewSession, 
+    session_data: SessionCreate, 
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
-    session_data.user_id = current_user.id
-    db.add(session_data)
+    # SessionCreate 데이터를 바탕으로 InterviewSession 생성
+    new_session = InterviewSession(
+        user_id=current_user.id,
+        user_name=session_data.user_name,
+        position=session_data.position
+    )
+    db.add(new_session)
     db.commit()
-    db.refresh(session_data)
+    db.refresh(new_session)
+    
+    logger.info(f"Created session with ID: {new_session.id}")
     
     # Llama-3.1-8B를 사용하여 직무 맞춤형 질문 생성 (GPU 가속)
     try:
-        logger.info(f"Generating AI questions for position: {session_data.position}")
+        logger.info(f"Generating AI questions for position: {new_session.position}")
         generated_questions = generator.generate_questions(
-            position=session_data.position,
+            position=new_session.position,
             count=5  # 기본 5개 질문 생성
         )
         logger.info(f"Generated {len(generated_questions)} questions successfully")
@@ -101,7 +108,7 @@ async def create_session(
         logger.error(f"Question generation failed: {str(e)}, using fallback questions")
         # 생성 실패 시 기본 질문 사용 (Fallback)
         generated_questions = [
-            f"{session_data.position} 직무의 핵심 역량은 무엇인가요?",
+            f"{new_session.position} 직무의 핵심 역량은 무엇인가요?",
             "최근 진행한 프로젝트에 대해 설명해주세요.",
             "기술적 문제를 해결한 경험을 공유해주세요."
         ]
@@ -109,14 +116,21 @@ async def create_session(
     # DB에 질문 저장
     for i, q_text in enumerate(generated_questions):
         question = InterviewQuestion(
-            session_id=session_data.id,
+            session_id=new_session.id,
             question_text=q_text,
             order=i + 1
         )
         db.add(question)
     
     db.commit()
-    return session_data
+    # DB에서 할당된 ID 등을 포함하여 최신 데이터를 다시 읽어옵니다.
+    db.refresh(new_session)
+    
+    # 세션 데이터 확인용 로그
+    session_dict = new_session.model_dump() 
+    logger.info(f"Returning session data to frontend: {session_dict}")
+    
+    return new_session
 
 @app.get("/sessions/{session_id}/questions", response_model=list[InterviewQuestion])
 async def get_questions(

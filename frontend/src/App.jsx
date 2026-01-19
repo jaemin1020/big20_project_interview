@@ -126,9 +126,27 @@ function App() {
     const pc = new RTCPeerConnection();
     pcRef.current = pc;
 
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    videoRef.current.srcObject = stream;
-    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+    try {
+      // 카메라와 마이크 권한 요청
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      videoRef.current.srcObject = stream;
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+      console.log('[WebRTC] Video and audio tracks added');
+    } catch (err) {
+      console.warn('[WebRTC] Camera access failed, trying audio-only mode:', err);
+      
+      try {
+        // 카메라 실패 시 오디오만 사용
+        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioStream.getTracks().forEach(track => pc.addTrack(track, audioStream));
+        console.log('[WebRTC] Audio-only mode enabled (emotion analysis will be skipped)');
+        alert('카메라 접근이 거부되었습니다. 음성 인식만 사용하여 면접을 진행합니다.');
+      } catch (audioErr) {
+        console.error('[WebRTC] Audio access also failed:', audioErr);
+        alert('마이크 접근이 거부되었습니다. 면접을 진행할 수 없습니다.');
+        throw audioErr;
+      }
+    }
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -227,7 +245,7 @@ function App() {
       }
     };
   }, []);
-
+  // start of html
   return (
     <div className="container">
       {step === 'auth' && (
@@ -259,7 +277,9 @@ function App() {
               <input 
                 type="password" 
                 value={account.password}
+                maxLength={24}
                 onChange={(e) => setAccount({ ...account, password: e.target.value })}
+                placeholder="최대 24자"
                 style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', color: '#333' }}
               />
             </div>

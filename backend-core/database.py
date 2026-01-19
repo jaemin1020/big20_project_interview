@@ -14,7 +14,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:1234@db:5432/interv
 # echo=True는 개발 단계에서 SQL 쿼리 로그를 볼 수 있어 유용합니다.
 engine = create_engine(
     DATABASE_URL, 
-    echo=False, 
+    echo=True, 
     pool_pre_ping=True # 연결이 끊겼는지 미리 확인하는 옵션
 )
 

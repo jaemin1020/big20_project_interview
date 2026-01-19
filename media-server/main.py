@@ -211,10 +211,15 @@ async def offer(request: Request):
 
     @pc.on("track")
     def on_track(track):
+        logger.info(f"[{session_id}] Received track: {track.kind}")
         if track.kind == "audio":
             asyncio.ensure_future(start_stt_with_deepgram(track, session_id))
+            logger.info(f"[{session_id}] Audio track processing started (STT enabled)")
         elif track.kind == "video":
             pc.addTrack(VideoAnalysisTrack(relay.subscribe(track), session_id))
+            logger.info(f"[{session_id}] Video track processing started (Emotion analysis enabled)")
+        else:
+            logger.warning(f"[{session_id}] Unknown track type: {track.kind}")
 
     await pc.setRemoteDescription(offer)
     answer = await pc.createAnswer()
