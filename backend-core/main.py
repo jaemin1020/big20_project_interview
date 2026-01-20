@@ -8,11 +8,11 @@ import logging
 # load_dotenv()
 
 from database import engine, init_db, get_session
-from models import InterviewSession, InterviewQuestion, InterviewAnswer, User, SessionCreate
+from models import InterviewSession, InterviewRecord, User, SessionCreate
 from chains.llama_gen import generator
 from auth import get_password_hash, verify_password, create_access_token, get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
 from fastapi.security import OAuth2PasswordRequestForm
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 # 1. 로깅 및 앱 초기화
 logging.basicConfig(level=logging.INFO)
@@ -96,78 +96,79 @@ async def create_session(
     
     logger.info(f"Created session with ID: {new_session.id}")
     
-    # Llama-3.1-8B를 사용하여 직무 맞춤형 질문 생성 (GPU 가속)
+    # 질문 생성 로직
     try:
         logger.info(f"Generating AI questions for position: {new_session.position}")
         generated_questions = generator.generate_questions(
             position=new_session.position,
-            count=5  # 기본 5개 질문 생성
+            count=5,
         )
         logger.info(f"Generated {len(generated_questions)} questions successfully")
     except Exception as e:
         logger.error(f"Question generation failed: {str(e)}, using fallback questions")
-        # 생성 실패 시 기본 질문 사용 (Fallback)
         generated_questions = [
             f"{new_session.position} 직무의 핵심 역량은 무엇인가요?",
             "최근 진행한 프로젝트에 대해 설명해주세요.",
             "기술적 문제를 해결한 경험을 공유해주세요."
         ]
     
-    # DB에 질문 저장
+    # DB에 InterviewRecord 형태로 저장
     for i, q_text in enumerate(generated_questions):
-        question = InterviewQuestion(
+        record = InterviewRecord(
             session_id=new_session.id,
             question_text=q_text,
             order=i + 1
         )
-        db.add(question)
+        db.add(record)
     
     db.commit()
-    # DB에서 할당된 ID 등을 포함하여 최신 데이터를 다시 읽어옵니다.
     db.refresh(new_session)
-    
-    # 세션 데이터 확인용 로그
-    session_dict = new_session.model_dump() 
-    logger.info(f"Returning session data to frontend: {session_dict}")
-    
     return new_session
 
-@app.get("/sessions/{session_id}/questions", response_model=list[InterviewQuestion])
+@app.get("/sessions/{session_id}/questions", response_model=list[InterviewRecord])
 async def get_questions(
     session_id: int, 
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
-    statement = select(InterviewQuestion).where(InterviewQuestion.session_id == session_id).order_by(InterviewQuestion.order)
+    statement = select(InterviewRecord).where(InterviewRecord.session_id == session_id).order_by(InterviewRecord.order)
     results = db.exec(statement).all()
     return results
 
 @app.post("/answers")
 async def submit_answer(
-    answer: InterviewAnswer, 
+    # record_id와 answer_text만 받으면 됨
+    answer_data: Dict[str, Any], 
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
-    # 1. 답변 저장
-    db.add(answer)
-    db.commit()
-    db.refresh(answer)
+    record_id = answer_data.get("record_id")
+    answer_text = answer_data.get("answer_text")
     
-    # 2. 질문 내용 조회 (평가를 위해)
-    question = db.get(InterviewQuestion, answer.question_id)
+    # 1. 기존 레코드 조회
+    record = db.get(InterviewRecord, record_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Interview record not found")
+        
+    # 2. 답변 내용 업데이트
+    record.answer_text = answer_text
+    record.answered_at = datetime.utcnow()
+    db.add(record)
+    db.commit()
+    db.refresh(record)
     
     # 3. ai-worker에 정밀 평가 요청 전달
     celery_app.send_task(
         "tasks.evaluator.analyze_answer",
         args=[
-            answer.id, # session_id 대신 answer.id를 넘겨 추후 매칭
-            question.question_text,
-            answer.answer_text,
+            record.id, 
+            record.question_text,
+            record.answer_text,
             "기술적 정확성, 논리적 구성, 전문 용어 사용 적절성"
         ]
     )
     
-    return {"status": "submitted", "answer_id": answer.id}
+    return {"status": "submitted", "record_id": record.id}
 
 @app.get("/sessions/{session_id}/results")
 async def get_session_results(
@@ -175,21 +176,17 @@ async def get_session_results(
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
-    # 세션에 속한 모든 질문과 답변 조회
-    statement = select(InterviewQuestion, InterviewAnswer).join(
-        InterviewAnswer, InterviewQuestion.id == InterviewAnswer.question_id
-    ).where(InterviewQuestion.session_id == session_id)
-    
+    statement = select(InterviewRecord).where(InterviewRecord.session_id == session_id).order_by(InterviewRecord.order)
     results = db.exec(statement).all()
     
     return [
         {
-            "question": q.question_text,
-            "answer": a.answer_text,
-            "evaluation": a.evaluation,
-            "emotion": a.emotion_summary
+            "question": r.question_text,
+            "answer": r.answer_text,
+            "evaluation": r.evaluation,
+            "emotion": r.emotion_summary
         }
-        for q, a in results
+        for r in results
     ]
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
-from sqlmodel import SQLModel, create_engine, Session, Field, JSON
-from typing import Optional
+from sqlmodel import SQLModel, create_engine, Session, Field, JSON, Column
+from sqlalchemy.dialects.postgresql import JSONB
+from typing import Optional, Dict, Any
 from datetime import datetime
 import os
 
@@ -8,34 +9,48 @@ engine = create_engine(DATABASE_URL)
 
 class InterviewSession(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None)
     user_name: str
     position: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
     status: str = Field(default="started")
-    emotion_summary: Optional[dict] = Field(default=None, sa_type=JSON)
+    emotion_summary: Optional[Dict[str, Any]] = Field(
+        default=None, 
+        sa_column=Column(JSONB)
+    )
 
-class InterviewAnswer(SQLModel, table=True):
+class InterviewRecord(SQLModel, table=True):
+    """질문과 답변을 하나의 테이블에서 관리 (ai-worker 버전)"""
     id: Optional[int] = Field(default=None, primary_key=True)
-    question_id: int
-    answer_text: str
-    evaluation: Optional[dict] = Field(default=None, sa_type=JSON)
-    emotion_summary: Optional[dict] = Field(default=None, sa_type=JSON)
+    session_id: int = Field(index=True)
+    question_text: str
+    order: int
+    answer_text: Optional[str] = None
+    evaluation: Optional[Dict[str, Any]] = Field(
+        default=None, 
+        sa_column=Column(JSONB)
+    )
+    emotion_summary: Optional[Dict[str, Any]] = Field(
+        default=None, 
+        sa_column=Column(JSONB)
+    )
+    answered_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-def update_answer_evaluation(answer_id: int, evaluation: dict):
+def update_record_evaluation(record_id: int, evaluation: dict):
     with Session(engine) as session:
-        answer = session.get(InterviewAnswer, answer_id)
-        if answer:
-            answer.evaluation = evaluation
-            session.add(answer)
+        record = session.get(InterviewRecord, record_id)
+        if record:
+            record.evaluation = evaluation
+            session.add(record)
             session.commit()
 
-def update_answer_emotion(answer_id: int, emotion: dict):
+def update_record_emotion(record_id: int, emotion: dict):
     with Session(engine) as session:
-        answer = session.get(InterviewAnswer, answer_id)
-        if answer:
-            answer.emotion_summary = emotion
-            session.add(answer)
+        record = session.get(InterviewRecord, record_id)
+        if record:
+            record.emotion_summary = emotion
+            session.add(record)
             session.commit()
 
 def update_session_emotion(session_id: int, emotion: dict):

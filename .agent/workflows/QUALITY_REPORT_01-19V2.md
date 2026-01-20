@@ -1,15 +1,15 @@
 ---
-description: 
+description:
 ---
-
 🔍 최종 품질 검사 보고서 (2026-01-19 업데이트)
 📊 검사 개요
 검사 일시: 2026-01-19 (2차 검사)
 프로젝트: AI Interview System
 검사 범위: 전체 시스템 + 최근 수정사항 반영
 ✅ 이전 보고서 대비 개선사항
+
 1. Backend 모델 구조 개선 ✅
-파일: backend-core/models.py, backend-core/main.py
+   파일: backend-core/models.py, backend-core/main.py
 
 SessionCreate 모델 추가로 요청/응답 데이터 명확히 분리
 API 엔드포인트에서 Pydantic 검증 강화
@@ -39,9 +39,11 @@ WebRTC 연결 단계별 로그 강화
 Backend, AI-Worker, Media-Server에 소스 볼륨 마운트 추가
 코드 수정 시 재빌드 없이 테스트 가능 (개발 효율성 향상)
 ❌ 여전히 남아있는 Critical Issues
-1. Frontend 버튼 클릭 이벤트 - 근본 원인 미확인
-상태: 🔴 UNRESOLVED 분석:
 
+1. Frontend 버튼 클릭 이벤트 - 근본 원인 미확인
+   상태: 🔴 UNRESOLVED 분석:
+
+```
 javascript
 // 현재 코드는 React 패턴상 완벽하나, 실제 동작 여부는 런타임 검증 필요
 const startInterview = async (uName, uPos) => {
@@ -55,8 +57,11 @@ const startInterview = async (uName, uPos) => {
     // ...
   }
 }
+```
+
 추가 디버깅 코드:
 
+```
 javascript
 // App.jsx에 추가 권장
 useEffect(() => {
@@ -64,9 +69,10 @@ useEffect(() => {
   console.log('[DEBUG] User state:', user);
   console.log('[DEBUG] Form values:', { userName, position });
 }, [step, user, userName, position]);
+```
 
 // 버튼에 명시적 핸들러 추가
-<button 
+<button
   onClick={(e) => {
     console.log('[CLICK] Button event triggered');
     console.log('[CLICK] Event object:', e);
@@ -74,14 +80,14 @@ useEffect(() => {
     startInterview(userName, position);
   }}
   style={{ cursor: 'pointer', pointerEvents: 'auto', zIndex: 1000 }}
->
+
   면접 시작하기
-</button>
+`</button>`
 체크리스트:
 
  브라우저 콘솔에서 [CLICK] Button event triggered 출력 확인
  Network 탭에서 POST /sessions 요청 발생 확인
- 요청 Header에 Authorization: Bearer <token> 존재 확인
+ 요청 Header에 Authorization: Bearer `<token>` 존재 확인
  응답 상태 코드 확인 (200 OK 예상)
 2. Database 연결 순서 문제 (Health Check 미구현)
 파일: docker-compose.yml, backend-core/database.py 문제:
@@ -91,7 +97,9 @@ init_db()에서 재시도 로직은 있으나 컨테이너 레벨 조율 필요
 권장 수정:
 
 yaml
+
 # docker-compose.yml
+
 db:
   image: pgvector/pgvector:pg16
   healthcheck:
@@ -110,8 +118,9 @@ backend:
 영향도: 🟡 MEDIUM - 초기 실행 시 간헐적 연결 실패 가능
 
 3. CORS 설정 보안 취약점
-파일: backend-core/main.py 현재 코드:
+   파일: backend-core/main.py 현재 코드:
 
+```
 python
 app.add_middleware(
     CORSMiddleware,
@@ -120,25 +129,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+```
+
 권장 수정:
 
+```
 python
-import os
-
-ALLOWED_ORIGINS = os.getenv(
+import osALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
     "http://localhost:3000,http://localhost:5173"
-).split(",")
-
-ENV = os.getenv("ENV", "development")
-
-app.add_middleware(
+).split(",")ENV = os.getenv("ENV", "development")app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS if ENV == "production" else ["*"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+```
+
+
 .env 파일에 추가:
 
 bash
@@ -154,18 +163,26 @@ Media Server에서 session_id를 문자열로 처리
 AI Worker에서 정수형으로 DB 조회
 코드 확인:
 
-python
+
 # media-server/main.py
+
+```python
 session_id = params.get("session_id", "unknown")  # str 타입
+```
 
 # ai-worker/tasks/vision.py
+
+```python
 def analyze_emotion(session_id, base64_img):  # session_id가 str로 전달됨
     # ...
     update_session_emotion(session_id, res)  # int 기대
 수정 권장:
+```
 
-python
+
 # ai-worker/tasks/vision.py
+
+```python
 def analyze_emotion(session_id, base64_img):
     try:
         session_id = int(session_id)  # ✅ 명시적 변환
@@ -173,20 +190,19 @@ def analyze_emotion(session_id, base64_img):
         logger.error(f"Invalid session_id type: {session_id}")
         return {"error": "Invalid session ID"}
     # ...
+```
+
 영향도: 🔴 HIGH - 감정 분석 결과가 DB에 저장되지 않을 수 있음
 
 5. Frontend 결과 조회 시 빈 배열 처리 미흡
-파일: frontend/src/App.jsx 문제:
+   파일: frontend/src/App.jsx 문제:
 
+```
 javascript
 const res = await getResults(session.id);
 setResults(res);
-setStep('result');
-
-// res가 빈 배열이면 "결과 없음" 메시지 표시 필요
-권장 수정:
-
-javascript
+setStep('result');// res가 빈 배열이면 "결과 없음" 메시지 표시 필요
+권장 수정:javascript
 setTimeout(async () => {
   const res = await getResults(session.id);
   if (res && res.length > 0) {
@@ -197,49 +213,68 @@ setTimeout(async () => {
     setStep('landing'); // 또는 재시도 로직
   }
 }, 8000);
+```
+
+
 영향도: 🟡 MEDIUM - 사용자 경험 저하
 
 🧪 즉시 실행 가능한 검증 시나리오
 시나리오 1: 전체 플로우 테스트
 bash
+
 # 1. 컨테이너 재시작
+
 docker-compose down -v
 docker-compose up --build -d
 
 # 2. 로그 실시간 모니터링
+
 docker-compose logs -f backend
 
 # 3. 브라우저에서 테스트
+
 # - http://localhost:3000 접속
+
 # - 회원가입 → 로그인 → 면접 시작 클릭
+
 # - 콘솔에서 "[CLICK] Button event triggered" 확인
+
 # - Network 탭에서 POST /sessions 요청 확인
+
 시나리오 2: API 직접 테스트
 bash
+
 # 1. 회원가입
-curl -X POST http://localhost:8000/register \
-  -H "Content-Type: application/json" \
+
+curl -X POST http://localhost:8000/register
+  -H "Content-Type: application/json"
   -d '{"username":"test","hashed_password":"test1234","full_name":"테스터"}'
 
 # 2. 로그인 (토큰 획득)
-curl -X POST http://localhost:8000/token \
-  -F "username=test" \
+
+curl -X POST http://localhost:8000/token
+  -F "username=test"
   -F "password=test1234"
 
 # 3. 세션 생성 (토큰 필요)
-curl -X POST http://localhost:8000/sessions \
-  -H "Authorization: Bearer <ACCESS_TOKEN>" \
-  -H "Content-Type: application/json" \
+
+curl -X POST http://localhost:8000/sessions
+  -H "Authorization: Bearer <ACCESS_TOKEN>"
+  -H "Content-Type: application/json"
   -d '{"user_name":"테스터","position":"Frontend 개발자"}'
 시나리오 3: DB 데이터 확인
 bash
+
 # PostgreSQL 접속
+
 docker exec -it interview_db psql -U admin -d interview_db
 
 # 테이블 확인
+
 \dt
 
 # 데이터 조회
+
 SELECT * FROM "user";
 SELECT * FROM interviewsession;
 SELECT * FROM interviewquestion;
@@ -292,4 +327,3 @@ Testing
 상태: 🟡 부분 개선 완료 - Critical Issue 1건 즉시 수정 필요
 
 다음 검사 예정: 수정 완료 후 재검증 요청 시
-

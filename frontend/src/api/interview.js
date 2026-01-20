@@ -59,9 +59,9 @@ export const getQuestions = async (sessionId) => {
     return response.data;
 };
 
-export const submitAnswer = async (questionId, answerText) => {
+export const submitAnswer = async (recordId, answerText) => {
     const response = await api.post('/answers', {
-        question_id: questionId,
+        record_id: recordId,
         answer_text: answerText
     });
     return response.data;

@@ -11,6 +11,12 @@ logger = logging.getLogger("AI-Worker-Vision")
 @shared_task(name="tasks.vision.analyze_emotion")
 def analyze_emotion(session_id, base64_img):
     try:
+        try:
+            session_id = int(session_id)
+        except (ValueError, TypeError):
+            logger.error(f"Invalid session_id type: {type(session_id)} - {session_id}")
+            return {"error": "Invalid session ID format"}
+            
         # 이미지 디코딩
         img_data = base64.b64decode(base64_img)
         nparr = np.frombuffer(img_data, np.uint8)

@@ -45,11 +45,12 @@ class QuestionGenerator:
             "text-generation",
             model=self.model,
             tokenizer=self.tokenizer,
-            max_new_tokens=128,  # 질문 하나만 생성하므로 토큰 수 감소
-            temperature=0.8,
+            max_new_tokens=80,  # 질문만 생성하도록 토큰 수 추가 감소
+            temperature=0.7,  # 일관성 향상
             top_p=0.9,
-            repetition_penalty=1.2,
-            do_sample=True
+            repetition_penalty=1.3,  # 반복 방지 강화
+            do_sample=True,
+            pad_token_id=self.tokenizer.eos_token_id  # 패딩 토큰 명시
         )
         self.llm = HuggingFacePipeline(pipeline=pipe)
         
@@ -81,29 +82,31 @@ class QuestionGenerator:
                 # 첫 질문: 직무 관련 기본 질문
                 prompt_template = """### 시스템 지시사항:
 당신은 {position} 직무의 전문 면접관입니다.
-지원자의 실무 역량을 평가하기 위한 질문을 작성하세요.
+지원자에게 할 면접 질문 하나만 작성하세요.
 
 ### 규칙:
 1. 반드시 한국어로 작성
-2. 질문 하나만 작성 (추가 설명 금지)
+2. 질문 하나만 작성 (답변 작성 금지)
 3. 실무 중심의 구체적인 질문
-4. 질문은 "~해주세요" 또는 "~무엇인가요?" 형식
+4. 질문은 "~해주세요" 또는 "~무엇인가요?" 형식으로 끝날 것
+5. 질문 외에 다른 텍스트를 추가하지 마세요
 
-### 면접관:
+### 면접관 질문:
 """
             else:
-                # 후속 질문: 이전 답변 기반 꼬리질문
                 prompt_template = """### 시스템 지시사항:
 당신은 {position} 직무의 전문 면접관입니다.
 {context}
+지원자에게 할 다음 면접 질문 하나만 작성하세요.
 
 ### 규칙:
 1. 반드시 한국어로 작성
-2. 질문 하나만 작성 (추가 설명 금지)
+2. 질문 하나만 작성 (답변 작성 금지)
 3. 이전 답변과 연관된 심화 질문 또는 새로운 각도의 질문
-4. 질문은 "~해주세요" 또는 "~무엇인가요?" 형식
+4. 질문은 "~해주세요" 또는 "~무엇인가요?" 형식으로 끝날 것
+5. 질문 외에 다른 텍스트를 추가하지 마세요
 
-### 면접관:
+### 면접관 질문:
 """
             
             prompt = PromptTemplate.from_template(prompt_template)
@@ -139,12 +142,26 @@ class QuestionGenerator:
         # 줄바꿈으로 분리
         lines = [line.strip() for line in raw_output.split('\n') if line.strip()]
         
-        # 가장 긴 문장을 질문으로 간주 (보통 질문이 가장 길음)
-        if lines:
-            question = max(lines, key=len)
-            # "면접관:", "질문:" 등의 접두사 제거
-            question = question.replace("면접관:", "").replace("질문:", "").strip()
-            return question if len(question) > 10 else ""
+        # 접두사 제거 및 정리
+        cleaned_lines = []
+        for line in lines:
+            # "면접관:", "질문:", "###" 등 접두사 제거
+            line = line.replace("면접관:", "").replace("질문:", "").replace("###", "").strip()
+            # "지원자:", "답변:" 등이 포함된 줄은 제외 (답변 생성 방지)
+            if any(keyword in line for keyword in ["지원자:", "답변:", "예시:", "A:", "Answer:"]):
+                continue
+            # 질문 형식으로 끝나는 문장만 선택
+            if line.endswith(("?", "가요?", "나요?", "세요?", "주세요.", "주세요?")):
+                cleaned_lines.append(line)
+        
+        # 가장 긴 질문 문장 선택
+        if cleaned_lines:
+            question = max(cleaned_lines, key=len)
+            # 최소 길이 검증
+            if len(question) > 10 and len(question) < 200:
+                return question
+        
+        # 정제된 질문이 없으면 빈 문자열 반환
         return ""
     
     def _get_fallback_question(self, position: str, index: int) -> str:

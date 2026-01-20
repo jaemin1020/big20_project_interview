@@ -18,37 +18,36 @@ class InterviewSession(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     user_name: str
-    position: str  # 지원 직무
+    position: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
     status: str = Field(default="started") # started, completed
     
-    # 세션 전체의 감정 통계 (JSONB로 인덱싱 및 정밀 쿼리 가능)
     emotion_summary: Optional[Dict[str, Any]] = Field(
         default=None, 
         sa_column=Column(JSONB)
     )
 
-class InterviewQuestion(SQLModel, table=True):
+class InterviewRecord(SQLModel, table=True):
+    """질문과 답변을 하나의 테이블에서 관리"""
     id: Optional[int] = Field(default=None, primary_key=True)
     session_id: int = Field(foreign_key="interviewsession.id", index=True)
+    
+    # 질문 관련
     question_text: str
     order: int
-
-class InterviewAnswer(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    question_id: int = Field(foreign_key="interviewquestion.id", index=True)
-    answer_text: str
     
-    # Solar-10.7B가 생성한 정밀 평가 JSON 저장
+    # 답변 관련 (초기에는 None)
+    answer_text: Optional[str] = None
+    
+    # 태스크 결과 (Solar LLM 평가 및 감정 분석)
     evaluation: Optional[Dict[str, Any]] = Field(
         default=None, 
         sa_column=Column(JSONB)
     )
-    
-    # 해당 답변 구간의 감정 분석 결과 저장
     emotion_summary: Optional[Dict[str, Any]] = Field(
         default=None, 
         sa_column=Column(JSONB)
     )
     
+    answered_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)

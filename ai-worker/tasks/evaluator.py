@@ -7,7 +7,7 @@ from langchain_community.llms import LlamaCpp
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.pydantic_v1 import BaseModel, Field
 
-from db import update_answer_evaluation
+from db import update_record_evaluation
 # 1. 로깅 설정
 logger = logging.getLogger("AI-Worker-Evaluator")
 
@@ -40,11 +40,11 @@ except Exception as e:
     raise
 
 @shared_task(name="tasks.evaluator.analyze_answer")
-def analyze_answer(session_id, question, user_answer, rubric):
+def analyze_answer(record_id, question, user_answer, rubric):
     """
     사용자의 답변을 Solar-10.7B로 정밀 평가하여 JSON 결과를 반환합니다.
     """
-    logger.info(f"[{session_id}] 정밀 평가 작업 수신")
+    logger.info(f"[{record_id}] 정밀 평가 작업 수신")
     start_time = time.time()
 
     # 파서가 요구하는 JSON 포맷 가이드를 자동으로 프롬프트에 추가
@@ -74,14 +74,14 @@ def analyze_answer(session_id, question, user_answer, rubric):
         parsed_data = parser.parse(raw_output)
         
         # 3. 메타데이터 추가
-        parsed_data["session_id"] = session_id
+        parsed_data["record_id"] = record_id
         parsed_data["model"] = "Solar-10.7B-instruct-v1.0-Q8"
         
-        # 4. DB 업데이트 (추가됨)
-        update_answer_evaluation(session_id, parsed_data) # 여기서 session_id는 answer_id로 전달됨
+        # 4. DB 업데이트 (통합 테이블 사용)
+        update_record_evaluation(record_id, parsed_data)
         
         duration = time.time() - start_time
-        logger.info(f"[{session_id}] 평가 완료 및 DB 저장 완료 (소요시간: {duration:.2f}초)")
+        logger.info(f"[{record_id}] 평가 완료 및 DB 저장 완료 (소요시간: {duration:.2f}초)")
         
         # 최종 결과 JSON 출력 (로그 확인용)
         logger.info(f"Result: {json.dumps(parsed_data, ensure_ascii=False)}")
